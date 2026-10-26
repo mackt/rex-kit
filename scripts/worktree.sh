@@ -3,9 +3,9 @@
 # Runs inside a Rex floating popup (see rex/init.lua) or from any shell.
 #
 # Usage:
-#   worktree.sh new    [SRC_DIR] [BRANCH]   create/open a worktree in a new Rex session
-#   worktree.sh open   [SRC_DIR]            pick an existing worktree, open its session
-#   worktree.sh remove [SRC_DIR]            pick a worktree, delete it and its session
+#   worktree.sh new    [SRC_DIR] [BRANCH]   create/open a worktree tab in this session
+#   worktree.sh open   [SRC_DIR]            pick an existing worktree, open its tab
+#   worktree.sh remove [SRC_DIR]            pick and delete a worktree
 #
 # SRC_DIR is any directory inside the repository (defaults to $PWD).
 # Worktrees live in $REX_WORKTREE_DIR/<repo>/<slug> (default ~/.rex/worktrees),
@@ -89,14 +89,25 @@ session_id_for_label() {
 
 # Ask the app to show SESSION. Needs Remote Control enabled in Rex settings.
 switch_to() {
-  if ! show_in_app "$1"; then
-    printf 'session ready: %s\n(enable Remote Control in Rex settings for auto-switch)\n' "$2"
+  if ! show_in_app "$1" "${3:-}"; then
+    printf 'worktree ready: %s\n(enable Remote Control in Rex settings for auto-switch)\n' "$2"
     sleep 2
   fi
 }
 
 open_session() {   # open_session DIR LABEL
-  local dir="$1" label="$2" sid
+  local dir="$1" label="$2" sid wid
+  if [[ -n "${REX_SESSION:-}" && "${REX_WORKTREE_TARGET:-tab}" != session ]]; then
+    sid="$REX_SESSION"
+    wid=$(rex window ls -s "$sid" --json | jq -r --arg l "$label" \
+      '[.windows[] | select(.label==$l) | .window_id][0] // empty')
+    if [[ -z "$wid" ]]; then
+      wid=$(rex window new -s "$sid" "$label" --cwd "$dir" --json | jq -er .window_id)
+    fi
+    switch_to "$sid" "$label" "$wid"
+    return
+  fi
+  # Outside Rex (or with an explicit opt-in), retain standalone sessions.
   sid=$(session_id_for_label "$label")
   if [[ -z "$sid" ]]; then
     sid=$(rex new "$label" --cwd "$dir" --json | jq -r .session_id)
@@ -114,16 +125,10 @@ pick() {   # pick PROMPT  (stdin: "path<TAB>branch")
 cmd_new() {
   local branch="$branch_arg"
   if [[ -z "$branch" ]]; then
-    local suggested out
+    local suggested
     suggested=$(generated_branch)
-    out=$( { printf '%s\n' "$suggested"; git -C "$root" branch --format='%(refname:short)'; } \
-      | fzf ${fzf_colors[@]+"${fzf_colors[@]}"} --prompt "new worktree ($repo) > " --height 100% --layout reverse \
-            --print-query --header "Enter: use the suggested name  |  type a new branch name  |  pick an existing branch" \
-      ) || true
+    branch=$(python3 "$(dirname "${BASH_SOURCE[0]}")/worktree-form.py" "$suggested" "$wt_root") || exit 0
     paint
-    # fzf --print-query prints the query on line 1 and the selection on line 2
-    branch=$(printf '%s\n' "$out" | sed -n '2p')
-    [[ -n "$branch" ]] || branch=$(printf '%s\n' "$out" | sed -n '1p')
   fi
   [[ -n "$branch" ]] || exit 0
 
@@ -157,7 +162,7 @@ cmd_remove() {
   [[ -n "$line" ]] || exit 0
   local dir branch
   dir=${line%%$'\t'*}; branch=${line#*$'\t'}
-  printf 'Delete %s\n  (%s) and close its Rex session? [y/N] ' "$dir" "$branch"
+  printf 'Delete checkout %s\n  (%s)? [y/N] ' "$dir" "$branch"
   local ans; read -r ans
   [[ "$ans" == [yY] ]] || exit 0
   local err
@@ -170,7 +175,9 @@ cmd_remove() {
   fi
   local sid
   sid=$(session_id_for_label "$repo/$branch")
-  [[ -n "$sid" ]] && rex kill "$sid" >/dev/null
+  # Legacy standalone sessions can be closed, but never kill the session
+  # containing this picker and the user's other tabs. Shared tabs stay open.
+  if [[ -n "$sid" && "$sid" != "${REX_SESSION:-}" ]]; then rex kill "$sid" >/dev/null; fi
   printf 'removed %s (branch %s kept)\n' "$dir" "$branch"
   sleep 1
 }

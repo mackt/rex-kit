@@ -68,7 +68,12 @@ Go to 打开时默认选中当前 pane（`◆` 标记）。列表覆盖服务器
 
 worktree 操作需从 Git 仓库内启动。默认路径是
 `~/.rex/worktrees/<repo>/<branch-slug>`，可用 `REX_WORKTREE_DIR` 修改。
-删除保留分支；丢弃未提交修改需要再次确认。关闭对应会话会结束其中运行的程序。
+新建表单需要 Python 3（含 curses）：预填一个分支名，直接输入即可替换，
+下方实时显示 checkout 路径。Enter 按输入的名称创建并打开，Esc 取消，不搜索分支。
+创建或打开后默认在当前 Session 下开 Tab，再次打开会复用该 Tab。
+在 Rex 之外运行，或设置 `REX_WORKTREE_TARGET=session`，仍可创建独立 Session。
+删除保留分支；丢弃未提交修改需要再次确认。共享 Session 中的 Tab 保留，由用户自行关闭；
+旧版创建的独立会话仍会关闭，但不会关闭正在执行删除的当前 Session。
 
 ## 更新和卸载
 

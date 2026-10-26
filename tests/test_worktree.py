@@ -55,6 +55,32 @@ sleep() { :; }
         self.shell('branch_arg=feature/new; cmd_new', src=self.worktree)
         self.assertEqual(self.git("rev-parse", "feature/new"), expected)
 
+    def test_typed_name_wins_over_fuzzy_branch_match(self):
+        self.git("branch", "feature/failure")
+        self.shell('''python3() { printf 'fail\\n'; }
+branch_arg=; cmd_new''')
+        self.assertEqual(self.git("rev-parse", "fail"), self.git("rev-parse", "HEAD"))
+        self.assertIn("refs/heads/fail\n", self.git("worktree", "list", "--porcelain") + "\n")
+
+    def test_current_session_opens_tab(self):
+        # Exercise the actual opener; replace only the Rex transport and UI.
+        env = dict(os.environ, WORKTREE_SH_LIB="1", REX_SESSION="session:current")
+        script = '''source "$1" open "$2"
+rex() {
+  if [[ "$1 $2" == "window ls" ]]; then printf '{"windows":[]}';
+  elif [[ "$1 $2" == "window new" ]]; then printf '{"window_id":"window:new"}';
+  elif [[ "$1" == ls ]]; then printf '{"sessions":[]}';
+  elif [[ "$1" == new ]]; then printf '{"session_id":"session:wrong"}';
+  fi
+}
+show_in_app() { printf 'SHOW:%s:%s\\n' "$1" "${2:-}"; }
+open_session "$2" "repo/feature"
+'''
+        result = subprocess.check_output(["bash", "-c", script, "test",
+                                          str(ROOT / "scripts/worktree.sh"), str(self.repo)],
+                                         env=env, text=True)
+        self.assertIn("SHOW:session:current:window:new", result)
+
     def test_declining_delete_keeps_worktree(self):
         self.shell('pick() { cat >/dev/null; printf "%s\\tfeature/test\\n" "$TEST_WORKTREE"; }; cmd_remove', "n\n")
         self.assertTrue(self.worktree.is_dir())
@@ -63,6 +89,15 @@ sleep() { :; }
         self.shell('pick() { cat >/dev/null; printf "%s\\tfeature/test\\n" "$TEST_WORKTREE"; }; cmd_remove', "y\n")
         self.assertFalse(self.worktree.exists())
         self.git("show-ref", "--verify", "refs/heads/feature/test")
+
+    def test_remove_never_closes_current_shared_session(self):
+        result = self.shell('''REX_SESSION=session:keep
+session_id_for_label() { printf '%s\\n' "$REX_SESSION"; }
+rex() { printf 'UNEXPECTED_CLOSE'; return 1; }
+pick() { cat >/dev/null; printf "%s\\tfeature/test\\n" "$TEST_WORKTREE"; }
+cmd_remove''', "y\n")
+        self.assertNotIn("UNEXPECTED_CLOSE", result)
+        self.assertFalse(self.worktree.exists())
 
     def test_declining_force_preserves_changes(self):
         dirty = self.worktree / "uncommitted.txt"

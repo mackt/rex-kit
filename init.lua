@@ -217,7 +217,7 @@ function M.setup(opts)
   -- ── Worktrees (herdr new/open/remove_worktree) ───────────────────────────
   -- Backed by scripts/worktree.sh. Each opens a picker in a popup, creates or
   -- finds the worktree under ~/.rex/worktrees/<repo>/<branch>, and opens a
-  -- Rex session named "<repo>/<branch>" in it. Auto-switching to that session
+  -- tab named "<repo>/<branch>" in the current session. Auto-switching
   -- needs Remote Control enabled in Rex's settings.
   local worktree_sh = scripts_dir .. "/worktree.sh"
 

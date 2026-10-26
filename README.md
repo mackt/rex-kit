@@ -10,8 +10,8 @@ included `Ctrl+A` keymap.
 
 - **Session navigator** — an fzf tree of sessions, tabs and panes, with search,
   program status filters, and a jump to the selected target.
-- **Git worktrees** — create, open and remove worktrees, with a Rex session for
-  each branch. Removal requires confirmation; discarding changes requires a
+- **Git worktrees** — create, open and remove worktrees, with a tab in the
+  current Rex session for each branch. Removal requires confirmation; discarding changes requires a
   second confirmation. Branches are kept.
 - **Popups** — lazygit and a scratch shell, shown as splits by default.
 - **Keymap** — a `Ctrl+A` prefix, pane navigation, tabs and a resize mode,
@@ -27,6 +27,7 @@ can live alongside the scripts and configuration.
 - Bash, Git, `jq`, and `fzf`. Tested with fzf **0.74.5**; the navigator uses recent
   features including `--footer` and `--ghost`.
 - `zsh` for the default scratch shell; `lazygit` for its popup.
+- Python 3 with `curses` for the new-worktree form.
 - Enable **Remote Control** in Rex settings for scripts to select sessions/tabs
   in the app. With several apps connected, set `REX_CLIENT` to the intended client.
 
@@ -129,6 +130,16 @@ again. Rex's current public API does not expose a custom app-wide overlay.
 
 ### Worktrees
 
+The new-worktree form has an editable branch name and a live checkout path.
+It starts with a generated name selected: type to replace it, or use the arrow
+keys to edit it. Enter creates/opens that exact branch; Esc cancels. There is
+no branch search. Ctrl+U clears the name, and Ctrl+A/Ctrl+E move to its ends.
+
+Creating or opening a worktree opens a named tab under the current session,
+reusing that tab on later opens. It does not create a new Sidebar session group.
+Outside a Rex session, it creates a standalone session; set
+`REX_WORKTREE_TARGET=session` to explicitly choose that behavior inside Rex too.
+
 Run from inside a Git checkout. New branches start at that checkout's HEAD.
 Paths default to `~/.rex/worktrees/<repo>/<branch-slug>`; override the base with
 `REX_WORKTREE_DIR`. Spaces, quotes and non-ASCII paths are supported. Tabs and
@@ -145,7 +156,9 @@ Shell entry points are usable independently:
 ```
 
 `remove` excludes the main checkout, asks before deleting, and keeps the Git
-branch. Closing a matching Rex session also ends the programs running in it.
+branch. Tabs in shared sessions stay open and can be closed separately. A
+matching legacy standalone session is closed unless it is the session running
+the picker; closing that session also ends the programs running in it.
 
 ## Update and uninstall
 
