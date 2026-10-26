@@ -40,6 +40,12 @@ rex do "$here_dir/goto-rows.lua" here="$here" \
   > "$rows_file" || { printf "goto: failed to collect sessions\n" >&2; exit 1; }
 [[ -s "$rows_file" ]] || { printf 'goto: no sessions\n'; sleep 1; exit 1; }
 
+# The current pane is marked in the tree; also put the cursor on that row.
+# Match pane rows only: the parent window can carry the same block ID.
+initial_row=$(awk -F'\t' -v here="$here" '
+  $1 == "pane" && here != "" && $4 == here { print NR; found = 1; exit }
+  END { if (!found) print 1 }' "$rows_file")
+
 jump() {   # jump "kind<TAB>sid<TAB>wid<TAB>bid<TAB>..."
   local kind sid wid bid
   IFS=$'\t' read -r kind sid wid bid _ <<<"$1"
@@ -78,6 +84,7 @@ filter() {
 pick=$(fzf ${fzf_colors[@]+"${fzf_colors[@]}"} --ansi --disabled --exact --delimiter '\t' --with-nth 6 \
   --layout reverse --height 100% --no-sort --tabstop 2 --info inline-right \
   --prompt "$list_prompt" --ghost "$ghost" --footer "$list_footer" \
+  --bind "load:pos($initial_row)+unbind(load)" \
   --preview 'printf "%s" {7}' --preview-window 'down,1,border-top,wrap' \
   --bind 'j:down,k:up,G:last,home:first,end:last,ctrl-d:half-page-down' \
   --bind "/:transform:$enter_search" \

@@ -114,6 +114,7 @@ quick-actions have not been ported.
 
 ### Navigator controls
 
+- Opens with the current pane selected (the `◆` marker).
 - `j/k` or arrows: move; Enter: jump; `/`: search.
 - `b/w/i/d/a`: blocked / working / idle / done / all.
 - Ctrl+D / Ctrl+U: half-page down / up in list mode.
@@ -121,6 +122,10 @@ quick-actions have not been ported.
 
 Program states depend on applications reporting OSC 7501. Unknown states are
 shown without a state icon; the kit does not infer agent progress from output.
+
+The list covers all sessions on the server, but its floating panel belongs to
+the tab where it was opened. Switching sessions hides it; returning shows it
+again. Rex's current public API does not expose a custom app-wide overlay.
 
 ### Worktrees
 
@@ -156,7 +161,9 @@ python3 -m unittest discover -s tests -v
 ```
 
 Tests use disposable Git repositories and stub session creation; they never
-delete user worktrees. Live Rex smoke tests are separate from CI.
+delete user worktrees. Navigator selection tests run the real fzf in a
+pseudo-terminal and skip when a version supporting `--ghost` is unavailable.
+Live Rex smoke tests are separate from CI.
 
 Floating pickers retain a workaround for Rex Beta's layer sizing and background
 rendering. If a future build changes this behavior, the geometry and margin
