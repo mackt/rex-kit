@@ -8,9 +8,84 @@ function M.setup(opts)
   opts = opts or {}
   local prefix = opts.prefix or "ctrl+a"
   local scripts_dir = kit_dir .. "/scripts"
+  local state_dir = os.getenv("REX_KIT_STATE_DIR")
+    or (os.getenv("XDG_STATE_HOME") or (os.getenv("HOME") .. "/.local/state")) .. "/rex-kit"
+  rex.exec{ "mkdir", "-p", state_dir }
+  local uname = rex.exec{ "uname" }
+  local macos = uname ~= nil and uname.ok and uname.stdout:match("^Darwin") ~= nil
 
-  local function bind(key, action, args)
-    if opts.keymap ~= false then rex.bind(prefix .. ">" .. key, action, args) end
+  -- ── ASCII input source in prefix mode (herdr switch_ascii_input_source_in_prefix)
+  -- With a CJK input method active, pressing the prefix switches to the
+  -- ASCII-capable keyboard layout so the next key reaches Rex as a letter;
+  -- the previous input source comes back when the prefix command runs, or
+  -- when a mode it started (resize) ends. The prefix then enters an
+  -- exclusive one-shot mode instead of starting a key sequence, because Rex
+  -- has no hook for "a sequence started". Esc cancels, as before.
+  local ascii_prefix = opts.keymap ~= false and opts.ascii_input_source ~= false and macos
+  local input_source_bin = state_dir .. "/input-source"
+  local saved_source
+
+  local function input_source(...)
+    -- Build the helper on first use, and again when its source changes.
+    local src = scripts_dir .. "/input-source.c"
+    local built = rex.exec{ "sh", "-c", '[ -x "$1" ] && [ ! "$2" -nt "$1" ] || clang -O2 -framework Carbon -o "$1" "$2"',
+                            "sh", input_source_bin, src }
+    if not (built and built.ok) then
+      rex.log("warn", "input-source build failed: " .. tostring(built and built.stderr))
+      return nil
+    end
+    return rex.exec{ input_source_bin, ... }
+  end
+
+  local function restore_input_source()
+    if saved_source then
+      input_source("select", saved_source)
+      saved_source = nil
+    end
+  end
+
+  if ascii_prefix then
+    rex.action{
+      name  = "rex_kit_prefix",
+      title = "Prefix (ASCII input source)",
+      category = "Navigation",
+      run   = function(ctx, args)
+        local r = input_source("ascii")
+        local previous = r and r.ok and r.stdout:match("([^\r\n]+)")
+        if previous then saved_source = previous end
+        rex.client.queue("client.mode.enter", { name = "rex_kit_prefix", once = true })
+      end,
+    }
+    -- Runs ACTION with ARGS after restoring the input source. KEEP leaves
+    -- the ASCII source on, for modes the action enters.
+    rex.action{
+      name  = "rex_kit_prefixed",
+      title = "Prefix: run action",
+      category = "Navigation",
+      args  = { action = "string?", args = "object?", keep = "boolean?" },
+      run   = function(ctx, args)
+        if not args.keep then restore_input_source() end
+        if not args.action then return end
+        if args.action:match("^rex_kit_") then
+          local _, err = rex.invoke(args.action, args.args)
+          if err ~= nil then error(err, 0) end
+        else
+          rex.client.queue(args.action, args.args)
+        end
+      end,
+    }
+    rex.mode("rex_kit_prefix", { exclusive = true })
+    rex.bind(prefix, "rex_kit_prefix")
+    rex.bind("rex_kit_prefix/escape", "rex_kit_prefixed")
+  end
+
+  local function bind(key, action, args, keep)
+    if opts.keymap == false then return end
+    if ascii_prefix then
+      rex.bind("rex_kit_prefix/" .. key, "rex_kit_prefixed", { action = action, args = args, keep = keep })
+    else
+      rex.bind(prefix .. ">" .. key, action, args)
+    end
   end
 
   -- Press the prefix twice to send the literal prefix key to the terminal
@@ -55,7 +130,7 @@ function M.setup(opts)
   bind("-", "pane.split", { direction = "down" })   -- split_horizontal (prefix+minus)
   bind("x", "pane.close")   -- close pane (prefix+x)
   bind("z", "pane.zoom")    -- zoom       (prefix+z)
-  bind("r", "client.mode.enter", { name = "rex_kit_resize" })  -- resize mode (prefix+r)
+  bind("r", "client.mode.enter", { name = "rex_kit_resize" }, true)  -- resize mode (prefix+r)
 
   -- ── Resize mode ──────────────────────────────────────────────────────────
   -- Entered with prefix+r. h/j/k/l or arrows resize, shift for bigger steps,
@@ -69,9 +144,13 @@ function M.setup(opts)
     rex.bind("rex_kit_resize/shift+" .. key, "pane.resize", { direction = direction, amount = 15 })
   end
   rex.bind("rex_kit_resize/=",     "pane.balance")
-  rex.bind("rex_kit_resize/enter", "client.mode.exit")
-  rex.bind("rex_kit_resize/q",     "client.mode.exit")
-  rex.bind("rex_kit_resize/escape", "client.mode.exit")
+  for _, key in ipairs{ "enter", "q", "escape" } do
+    if ascii_prefix then
+      rex.bind("rex_kit_resize/" .. key, "rex_kit_prefixed", { action = "client.mode.exit" })
+    else
+      rex.bind("rex_kit_resize/" .. key, "client.mode.exit")
+    end
+  end
   end
 
   -- ── Popups (herdr [[keys.command]] type = "popup") ───────────────────────
@@ -252,6 +331,14 @@ function M.setup(opts)
   worktree_action("rex_kit_worktree_remove", "Worktree: remove…", "remove")
 
   -- ── Session navigator (herdr goto) ──────────────────────────────────────
+  -- seen-watcher.lua records when each pane was last in view, so the
+  -- navigator can mark agents that finished since as unread. One copy runs
+  -- per server; starting another (on reload) exits at once.
+  if opts.unread ~= false then
+    local _, err = rex.exec.start{ "rex", "do", "--all", scripts_dir .. "/seen-watcher.lua",
+                                   "state=" .. state_dir .. "/seen.tsv" }
+    if err ~= nil then rex.log("warn", "seen-watcher: " .. tostring(err)) end
+  end
   rex.action{
     name  = "rex_kit_goto",
     title = "Go to Session, Tab or Pane…",

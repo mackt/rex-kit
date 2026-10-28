@@ -6,7 +6,7 @@
 #   goto.sh [HERE_BLOCK_ID]      HERE_BLOCK_ID marks the pane you came from
 #
 #   list mode (initial)   j/k ↑↓ move   enter switch   / search
-#                         b/w/i/d blocked/working/idle/done   a all
+#                         b/u/w/i/d blocked/unread/working/idle/done   a all
 #                         ctrl-d/ctrl-u half page   G/end last   home first
 #                         esc close
 #   search mode           type to filter   ↑↓ ctrl-n/p move   enter switch
@@ -28,12 +28,13 @@ if [[ "${1:-}" == "--filter" ]]; then
 fi
 
 here="${1:-}"
+seen_file="${REX_KIT_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/rex-kit}/seen.tsv"
 rows_file=$(mktemp "${TMPDIR:-/tmp}/rex-goto.XXXXXX")
 trap 'rm -f "$rows_file"' EXIT
 
 # Rows come out with each session's row last; put it first again (the
 # collector numbers nothing, so order by: session rows before their children).
-rex do "$here_dir/goto-rows.lua" here="$here" \
+rex do "$here_dir/goto-rows.lua" here="$here" seen="$seen_file" \
   | awk -F'\t' '{ buf[NR] = $0; kind[NR] = $1 }
       END { start = 1
             for (i = 1; i <= NR; i++) if (kind[i] == "session") { print buf[i]; for (j = start; j < i; j++) print buf[j]; start = i + 1 } }' \
@@ -60,12 +61,12 @@ jump() {   # jump "kind<TAB>sid<TAB>wid<TAB>bid<TAB>..."
 
 export REX_KIT_GOTO_SELF="$here_dir/goto.sh"
 export REX_KIT_GOTO_ROWS="$rows_file"
-list_footer=' enter switch   / search   b/w/i/d/a states   j/k/↑↓ move   esc close'
+list_footer=' enter switch   / search   b/u/w/i/d/a states   j/k/↑↓ move   esc close'
 search_footer=' enter switch   ↑↓ move   ctrl-u clear   esc back'
 list_prompt='  '
 ghost='search panes'   # placeholder in the empty search box, as herdr shows
 # Keys that mean something only in list mode; search mode types them.
-list_keys='j,k,b,w,i,d,a,G,/'
+list_keys='j,k,b,u,w,i,d,a,G,/'
 # Back from search keeps the query and its matches (as herdr does); only the
 # key meanings change. Search stays enabled: disabling it would leave the
 # list filtered by a query nobody can edit.
@@ -88,7 +89,7 @@ pick=$(fzf ${fzf_colors[@]+"${fzf_colors[@]}"} --ansi --disabled --exact --delim
   --preview 'printf "%s" {7}' --preview-window 'down,1,border-top,wrap' \
   --bind 'j:down,k:up,G:last,home:first,end:last,ctrl-d:half-page-down' \
   --bind "/:transform:$enter_search" \
-  --bind "b:$(filter blocked '● blocked  ')" --bind "w:$(filter working '◐ working  ')" \
+  --bind "b:$(filter blocked '● blocked  ')" --bind "u:$(filter unread '◉ unread  ')" --bind "w:$(filter working '◐ working  ')" \
   --bind "i:$(filter idle '○ idle  ')" --bind "d:$(filter done '✔ done  ')" \
   --bind "a:$(filter all "$list_prompt")" \
   --bind "esc:transform:[[ \$FZF_PROMPT == '/ ' ]] && echo 'change-prompt($list_prompt)+$to_list' || echo abort" \
