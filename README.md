@@ -71,7 +71,6 @@ require("rex-kit").setup{
   keymap = true,         -- false: register actions only; keep your own keys
   popup_style = "split", -- split, tab or layer (lazygit / scratch shell)
   shell = "zsh",         -- executable name or path
-  ascii_input_source = true, -- macOS: switch to an ASCII layout after the prefix
   unread = true,         -- track unread agent replies for the navigator
   -- appearance = "dark", -- optional: light or dark; otherwise follow macOS/Rex
 }
@@ -112,13 +111,6 @@ Press `Ctrl+A`, release it, then press the key below. `Alt` is Option on macOS.
 | `Ctrl+A` | Send a literal Ctrl+A |
 
 In resize mode, `=` balances panes; Enter, Esc or `q` exits.
-
-On macOS, pressing the prefix switches to the current ASCII-capable keyboard
-layout, as Herdr's `switch_ascii_input_source_in_prefix` does, so a CJK input
-method doesn't swallow the next key. The previous input source is restored when
-the command runs, on Esc, or when resize mode ends. The helper
-(`scripts/input-source.c`) is compiled with `clang` on first use. Set
-`ascii_input_source = false` to keep a plain `prefix>key` sequence instead.
 Bare `prefix+d` and `prefix+a` are not bound: the Herdr project picker and
 quick-actions have not been ported.
 
