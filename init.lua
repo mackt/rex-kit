@@ -335,8 +335,12 @@ function M.setup(opts)
   -- navigator can mark agents that finished since as unread. One copy runs
   -- per server; starting another (on reload) exits at once.
   if opts.unread ~= false then
-    local _, err = rex.exec.start{ "rex", "do", "--all", scripts_dir .. "/seen-watcher.lua",
-                                   "state=" .. state_dir .. "/seen.tsv" }
+    -- The server's PATH may lack rex; it sits beside the server binary.
+    local _, err = rex.exec.start({ "sh", "-c",
+      'PATH="$PATH:$(dirname "$(ps -o comm= -p $PPID)")"'
+        .. ':"$HOME/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS"'
+        .. '; exec rex do --all "$1" "state=$2" >>"$2.log" 2>&1',
+      "sh", scripts_dir .. "/seen-watcher.lua", state_dir .. "/seen.tsv" }, { detach = true })
     if err ~= nil then rex.log("warn", "seen-watcher: " .. tostring(err)) end
   end
   rex.action{
