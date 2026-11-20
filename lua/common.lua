@@ -21,13 +21,12 @@ function M.lines(text)
   return out
 end
 
--- The working directory of the program in BLOCK_ID, or nil. SESSION_ID is
--- needed for a block outside the action's session.
-function M.cwd_of(block_id, session_id)
+-- The working directory of the program in BLOCK_ID, or nil.
+function M.cwd_of(block_id)
   if not block_id then return nil end
-  local proc = rex.block.call(TERMINAL, "process", { block_id = block_id, session_id = session_id })
+  local proc = rex.block.call(TERMINAL, "process", { block_id = block_id })
   if proc and proc.foreground and proc.foreground.cwd then return proc.foreground.cwd end
-  local r = rex.block.call(TERMINAL, "pwd", { block_id = block_id, session_id = session_id })
+  local r = rex.block.call(TERMINAL, "pwd", { block_id = block_id })
   if r and r.pwd and r.pwd ~= "" then
     if r.pwd:match("^file://") then
       return (r.pwd:gsub("^file://[^/]*", ""):gsub("%%(%x%x)", function(hex)
