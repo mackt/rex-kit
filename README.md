@@ -161,6 +161,8 @@ question: `rex do rex_kit_worktree_new branch=feature/x`,
 (a checkout with changes still asks before discarding them).
 
 Run from inside a Git checkout. New branches start at that checkout's HEAD.
+From a pane outside any repository, the palette says so and lists the
+repositories your other panes are in; pick one to carry on there.
 Paths default to `~/.rex/worktrees/<repo>/<branch-slug>`; override the base with
 `worktree_dir` (or `REX_WORKTREE_DIR` for the script). Spaces, quotes and non-ASCII paths are supported. Tabs and
 newlines in worktree paths are rejected. Bare repositories and separate Git

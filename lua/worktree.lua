@@ -24,13 +24,66 @@ local function must(...)
   return out
 end
 
--- The repository the focused pane is in: { cwd, repo, root, base }.
-local function repository(ctx)
-  local cwd = common.cwd_of(ctx.block_id) or os.getenv("HOME")
-  local out, err = wt("info", cwd)
-  if not out then error("Worktrees: " .. err, 0) end
+-- The repository DIR is in: { cwd, repo, root, base }, or nil.
+local function repository_at(dir)
+  local out = dir and wt("info", dir)
+  if not out then return nil end
   local repo, root, base = out:match("^([^\t]*)\t([^\t]*)\t([^\r\n]*)")
-  return { cwd = cwd, repo = repo, root = root, base = base }
+  return repo and { cwd = dir, repo = repo, root = root, base = base }
+end
+
+-- The repositories that panes in every session are in, one per main
+-- checkout, in sidebar order.
+local function open_repositories()
+  local found, seen_dirs, seen_roots = {}, {}, {}
+  for _, s in ipairs((rex.call("session.list") or {}).sessions or {}) do
+    local v = rex.session.view{ session_id = s.session_id }
+    for _, w in ipairs((v and v.windows) or {}) do
+      for _, l in ipairs(w.layers or {}) do
+        for _, b in ipairs((l.kind == "tiled" and l.blocks) or {}) do
+          local dir = common.cwd_of(b.block_id, s.session_id)
+          if dir and not seen_dirs[dir] then
+            seen_dirs[dir] = true
+            local r = repository_at(dir)
+            if r and not seen_roots[r.root] then
+              seen_roots[r.root] = true
+              found[#found + 1] = r
+            end
+          end
+        end
+      end
+    end
+  end
+  return found
+end
+
+-- The repository the focused pane is in. Outside one, say so in the palette
+-- and offer the repositories other panes are in; nil if none is chosen.
+local function repository(ctx, doing)
+  local cwd = common.cwd_of(ctx.block_id) or os.getenv("HOME")
+  local here = repository_at(cwd)
+  if here then return here end
+
+  local repos = open_repositories()
+  local items = {}
+  for _, r in ipairs(repos) do
+    items[#items + 1] = { id = r.root, title = r.repo, subtitle = tilde(r.root), icon = "folder" }
+  end
+  local placeholder = #repos > 0 and ("Pick a repository to " .. doing .. " in")
+    or "cd into a Git repository first, then try again"
+  if #repos == 0 then
+    items[1] = { id = "ok", title = "Got it", subtitle = "Worktrees need a pane inside a Git repository" }
+  end
+  local root = common.pick{
+    title = tilde(cwd) .. " isn't in a Git repository",
+    placeholder = placeholder,
+    items = items,
+    confirm = #repos > 0 and "Use this repository" or nil,
+  }
+  for _, r in ipairs(repos) do
+    if r.root == root then return r end
+  end
+  return nil
 end
 
 local function worktrees(r)
@@ -110,7 +163,8 @@ local function ask_branch(r)
 end
 
 function M.new(ctx, args)
-  local r = repository(ctx)
+  local r = repository(ctx, "create a worktree")
+  if not r then return nil end
   local branch = args.branch or ask_branch(r)
   if not branch then return nil end
   local dir = must("new", r.cwd, branch):gsub("%s+$", "")
@@ -148,7 +202,8 @@ local function chosen(r, args, title, confirm)
 end
 
 function M.open(ctx, args)
-  local r = repository(ctx)
+  local r = repository(ctx, "open a worktree")
+  if not r then return nil end
   local w = chosen(r, args, "Open worktree", "Open")
   if not w then return nil end
   return open(ctx, w.path, r.repo .. "/" .. w.branch)
@@ -157,7 +212,8 @@ end
 -- Removing asks first; a checkout with changes is only forced after a second
 -- question. The branch is always kept.
 function M.remove(ctx, args)
-  local r = repository(ctx)
+  local r = repository(ctx, "remove a worktree")
+  if not r then return nil end
   local w = chosen(r, args, "Remove worktree", "Remove…")
   if not w then return nil end
   if not args.yes and not common.confirm("Delete checkout of " .. w.branch .. "?",
