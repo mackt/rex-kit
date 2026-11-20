@@ -65,7 +65,7 @@ rex config reload
 `◆` 标记打开导航器时所在的 pane。想只看某种状态，可以绑定带参数的快捷键：
 `rex.bind("ctrl+a>u", "rex_kit_goto", { state = "unread" })`。
 
-worktree 操作需从 Git 仓库内启动；在非 Git 目录中触发时，命令面板会给出提示。默认路径是
+worktree 操作需从 Git 仓库内启动；在非 Git 目录中触发时，Rex 会弹出一条简短提示。默认路径是
 `~/.rex/worktrees/<repo>/<branch-slug>`，可用 setup 的 `worktree_dir` 修改。
 新建时在命令面板里输入分支名（预填一个生成的名字），Enter 按输入的名称创建并打开，
 名称不合法会重新询问。打开/删除会列出该仓库的 worktree，已开成 Tab 的会标出来。

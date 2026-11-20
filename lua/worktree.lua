@@ -32,18 +32,13 @@ local function repository_at(dir)
   return repo and { cwd = dir, repo = repo, root = root, base = base }
 end
 
--- The repository the focused pane is in. Outside one, say so in the
--- palette and return nil.
+-- The repository the focused pane is in. Outside one, the action stops
+-- with a short message, which the Rex app shows as a notice.
 local function repository(ctx)
   local cwd = common.cwd_of(ctx.block_id) or os.getenv("HOME")
   local here = repository_at(cwd)
   if here then return here end
-  common.pick{
-    title = tilde(cwd) .. " isn't in a Git repository",
-    placeholder = "Worktrees work from a pane inside a Git repository",
-    items = { { id = "ok", title = "Got it", subtitle = "cd into a repository, then try again" } },
-  }
-  return nil
+  error(tilde(cwd) .. " isn't in a Git repository. cd into one, then try again.", 0)
 end
 
 local function worktrees(r)
@@ -124,7 +119,6 @@ end
 
 function M.new(ctx, args)
   local r = repository(ctx)
-  if not r then return nil end
   local branch = args.branch or ask_branch(r)
   if not branch then return nil end
   local dir = must("new", r.cwd, branch):gsub("%s+$", "")
@@ -163,7 +157,6 @@ end
 
 function M.open(ctx, args)
   local r = repository(ctx)
-  if not r then return nil end
   local w = chosen(r, args, "Open worktree", "Open")
   if not w then return nil end
   return open(ctx, w.path, r.repo .. "/" .. w.branch)
@@ -173,7 +166,6 @@ end
 -- question. The branch is always kept.
 function M.remove(ctx, args)
   local r = repository(ctx)
-  if not r then return nil end
   local w = chosen(r, args, "Remove worktree", "Remove…")
   if not w then return nil end
   if not args.yes and not common.confirm("Delete checkout of " .. w.branch .. "?",
