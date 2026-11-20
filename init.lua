@@ -77,24 +77,12 @@ function M.setup(opts)
   rex.bind("rex_kit_resize/escape", "client.mode.exit")
   end
 
+  local common = dofile(kit_dir .. "/lua/common.lua")
+  local cwd_of = common.cwd_of
+
   -- ── Popups (herdr [[keys.command]] type = "popup") ───────────────────────
-  -- Opens COMMAND in a floating layer over the current window, in the focused
-  -- pane's working directory. The layer closes when the command exits.
-  local function cwd_of(block_id)
-    if not block_id then return nil end
-    local proc = rex.block.call("com.superlogical.terminal", "process", { block_id = block_id })
-    if proc and proc.foreground and proc.foreground.cwd then return proc.foreground.cwd end
-    local r = rex.block.call("com.superlogical.terminal", "pwd", { block_id = block_id })
-    if r and r.pwd and r.pwd ~= "" then
-      if r.pwd:match("^file://") then
-        return (r.pwd:gsub("^file://[^/]*", ""):gsub("%%(%x%x)", function(hex)
-          return string.char(tonumber(hex, 16))
-        end))
-      end
-      return r.pwd
-    end
-    return proc and proc.child and proc.child.cwd or nil
-  end
+  -- Opens COMMAND beside, over or instead of the current pane, in the focused
+  -- pane's working directory. The popup closes when the command exits.
 
   -- Theme applied to "layer" popups: floating layers draw the terminal
   -- background translucent, so give them explicit colors (Merino themes,
@@ -127,56 +115,33 @@ function M.setup(opts)
   end
 
   -- How a popup is shown:
+  --   "split": a pane beside the focused one. The default.
+  --   "tab":   a new tab.
   --   "layer": a floating layer over the window. The app draws the terminal's
-  --            default background see-through, so only programs that paint an
-  --            explicit background on every cell (fzf with --color, see
-  --            scripts/worktree.sh) look right there.
-  --   "split": a pane beside the focused one, closed when the command exits.
-  --            Opaque, so this is what lazygit and shells use.
-  --   "tab":   a new tab, closed when the command exits.
+  --            default background see-through there, so it gets the theme
+  --            above; full-screen programs may still show through.
   local default_popup_style = opts.popup_style or "split"
   assert(default_popup_style == "split" or default_popup_style == "tab" or default_popup_style == "layer",
     "popup_style must be split, tab or layer")
 
-  -- open_popup(ctx, command, size, style): COMMAND is a list, or a
-  -- function(cwd) returning one. SIZE is the share of the window (or split)
-  -- the popup gets. STYLE overrides default_popup_style.
-  local function open_popup(ctx, command, size, style)
+  -- open_popup(ctx, command, size): SIZE is the share of the window (or
+  -- split) the popup gets.
+  local function open_popup(ctx, command, size)
     size = size or 0.8
-    local popup_style = style or default_popup_style
-    local cwd = cwd_of(ctx.block_id)
-    if type(command) == "function" then command = command(cwd) end
-    -- Floating layer geometry. Rex draws the layer from (x, y) to (w, h) as
-    -- edges, but sizes the layer's terminal as if w and h were its width and
-    -- height, so the terminal is wider and taller than what is visible. The
-    -- script compensates with an fzf margin: right x/w, bottom y/h.
-    local left, top = (1 - size) / 2, (1 - size) / 2
-    local right, bottom = left + size, top + size
-    if popup_style == "layer" then
-      -- Only the default background is see-through in a floating layer; cells
-      -- with an explicit background are opaque. Tell the script which colors
-      -- to paint with (worktree.sh passes them to fzf).
-      local theme = popup_theme[current_appearance()]
-      local margin = string.format("0,%d%%,%d%%,0",
-        math.ceil(left / right * 100), math.ceil(top / bottom * 100))
-      command = { "env", "REX_POPUP_BG=" .. theme.background, "REX_POPUP_FG=" .. theme.foreground,
-                  "REX_POPUP_MARGIN=" .. margin, unpack(command) }
-    end
     local layout = rex.layout.block{
       flavor  = "com.superlogical.terminal.shell",
-      options = { command = command, cwd = cwd },
+      options = { command = command, cwd = cwd_of(ctx.block_id) },
     }
     local r, err
-    if popup_style == "tab" then
+    if default_popup_style == "tab" then
       r, err = rex.session.new_window{ window_label = "popup", focus = true, layout = layout }
-    elseif popup_style == "layer" then
+    elseif default_popup_style == "layer" then
+      -- Rex reads bounds w and h as the right and bottom edges.
+      local edge = (1 - size) / 2
+      local placed = ctx.block_id and rex.session.describe_block{ block_id = ctx.block_id }
       r, err = rex.session.new_layer{
-        window_id = ctx.block_id and (function()
-          local r, err = rex.session.describe_block{ block_id = ctx.block_id }
-          if not r then error(err or "cannot locate popup window", 0) end
-          return r.block.window_id
-        end)() or nil,
-        bounds = { x = left, y = top, w = right, h = bottom },
+        window_id = placed and placed.block.window_id or nil,
+        bounds = { x = edge, y = edge, w = edge + size, h = edge + size },
         focus  = true,
         layout = layout,
       }
@@ -190,11 +155,11 @@ function M.setup(opts)
     end
     if err ~= nil then error(err, 0) end
     local block_id = r.block_ids and r.block_ids[1]
-    if popup_style == "layer" and block_id then
+    if default_popup_style == "layer" and block_id then
       local theme = popup_theme[current_appearance()]
       local palette = {}   -- set_theme wants "index=color" entries
       for i, color in ipairs(theme.palette) do palette[i] = (i - 1) .. "=" .. color end
-      local _, terr = rex.block.call("com.superlogical.terminal", "set_theme", {
+      local _, terr = rex.block.call(common.TERMINAL, "set_theme", {
         block_id = block_id, background = theme.background, foreground = theme.foreground,
         cursor = theme.cursor, palette = palette,
       })
@@ -218,41 +183,32 @@ function M.setup(opts)
   bind("t",     "rex_kit_popup_shell")     -- (herdr prefix+t)
 
   -- ── Worktrees (herdr new/open/remove_worktree) ───────────────────────────
-  -- Backed by scripts/worktree.sh. Each opens a picker in a popup, creates or
-  -- finds the worktree under ~/.rex/worktrees/<repo>/<branch>, and opens a
-  -- tab named "<repo>/<branch>" in the current session. Auto-switching
-  -- needs Remote Control enabled in Rex's settings.
-  local worktree_sh = scripts_dir .. "/worktree.sh"
-
-  -- Same precondition herdr checks before opening its worktree dialogs.
-  local function inside_git_work_tree(dir)
-    local r = rex.exec{ "git", "-C", dir, "rev-parse", "--is-inside-work-tree" }
-    return r ~= nil and r.ok and r.stdout:match("([^\r\n]+)") == "true"
-  end
-
-  local function worktree_action(name, title, subcommand)
-    rex.action{
-      name  = name,
-      title = title,
-      category = "Worktrees",
-      args  = { branch = "string?" },
-      run   = function(ctx, args)
-        local cwd = cwd_of(ctx.block_id) or os.getenv("HOME")
-        if not inside_git_work_tree(cwd) then
-          error("worktree actions require a directory inside a Git work tree (" .. cwd .. ")", 0)
-        end
-        open_popup(ctx, function(cwd)
-          local command = { worktree_sh, subcommand, cwd or "" }
-          if args.branch then command[#command + 1] = args.branch end
-          return command
-        end, 0.6, "layer")
-      end,
-    }
-  end
-
-  worktree_action("rex_kit_worktree_new",    "Worktree: new…",    "new")
-  worktree_action("rex_kit_worktree_open",   "Worktree: open…",   "open")
-  worktree_action("rex_kit_worktree_remove", "Worktree: remove…", "remove")
+  -- Questions are asked in Rex's command palette (rex.ui); the Git work is
+  -- done by scripts/worktree.sh. A worktree lives under
+  -- ~/.rex/worktrees/<repo>/<branch> and opens as a tab named "<repo>/<branch>"
+  -- in the current session.
+  local worktree = assert(loadfile(kit_dir .. "/lua/worktree.lua"))(common, {
+    scripts_dir = scripts_dir, worktree_target = opts.worktree_target,
+    worktree_dir = opts.worktree_dir,
+  })
+  rex.action{
+    name = "rex_kit_worktree_new", title = "Worktree: New…", category = "Worktrees",
+    keywords = "git branch create checkout",
+    args = { branch = "string?" },
+    run = function(ctx, args) return worktree.new(ctx, args) end,
+  }
+  rex.action{
+    name = "rex_kit_worktree_open", title = "Worktree: Open…", category = "Worktrees",
+    keywords = "git branch switch checkout",
+    args = { path = "string?" },
+    run = function(ctx, args) return worktree.open(ctx, args) end,
+  }
+  rex.action{
+    name = "rex_kit_worktree_remove", title = "Worktree: Remove…", category = "Worktrees",
+    keywords = "git branch delete",
+    args = { path = "string?", yes = "boolean?" },
+    run = function(ctx, args) return worktree.remove(ctx, args) end,
+  }
 
   -- ── Session navigator (herdr goto) ──────────────────────────────────────
   -- seen-watcher.lua records when each pane was last in view, so the
@@ -267,14 +223,14 @@ function M.setup(opts)
       "sh", scripts_dir .. "/seen-watcher.lua", state_dir .. "/seen.tsv" }, { detach = true })
     if err ~= nil then rex.log("warn", "seen-watcher: " .. tostring(err)) end
   end
+  local navigator = assert(loadfile(kit_dir .. "/lua/navigator.lua"))(common, {
+    seen_file = opts.unread ~= false and (state_dir .. "/seen.tsv") or nil,
+  })
   rex.action{
-    name  = "rex_kit_goto",
-    title = "Go to Session, Tab or Pane…",
-    category = "Navigation",
-    run   = function(ctx, args)
-      local goto_sh = scripts_dir .. "/goto.sh"
-      open_popup(ctx, { goto_sh, ctx.block_id or "" }, 0.7, "layer")
-    end,
+    name = "rex_kit_goto", title = "Go to Session, Tab or Pane…", category = "Navigation",
+    keywords = "navigator jump switch agent blocked unread",
+    args = { state = "string?", target = "string?" },
+    run = function(ctx, args) return navigator.run(ctx, args) end,
   }
   bind("g", "rex_kit_goto")                    -- (herdr prefix+g)
 

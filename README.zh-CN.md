@@ -7,8 +7,8 @@
 
 ## 已有功能
 
-- **会话导航器**：以树形展示 session、tab、pane，支持搜索和 Agent 状态筛选。
-- **Git worktree 管理**：创建、打开、删除 worktree，并为分支创建 Rex 会话。
+- **会话导航器**：在 Rex 原生命令面板中列出所有 session、tab、pane，显示 Agent 状态，可搜索、可按状态筛选。
+- **Git worktree 管理**：创建、打开、删除 worktree，问题都在命令面板中询问，每个分支在当前 Session 下开一个 Tab。
 - **弹窗**：lazygit 和临时 shell，默认使用分屏。
 - **快捷键配置**：Ctrl+A 前缀、窗口切换、分屏导航和调整尺寸模式。
 
@@ -17,8 +17,9 @@
 
 ## 安装
 
-需要 macOS、Rex、Bash、Git、jq、fzf；lazygit 弹窗另需安装 lazygit。
-已验证 Rex Beta 1408（API 7）和 fzf 0.74.5，其他版本可能需要适配。
+需要 macOS、Rex 2061 及以上（API revision 17+）、Bash、Git；lazygit 弹窗另需安装 lazygit。
+导航器和 worktree 通过 [`rex.ui`](https://www.superlogical.com/rex/docs/customize/custom-ui)
+在命令面板中提问，服务器和 Rex App 都需要支持；App 版本过旧时会给出明确的报错。
 
 ```sh
 git clone https://github.com/mackt/rex-kit.git ~/.config/rex/rex-kit
@@ -43,9 +44,6 @@ rex config reload
 仓库也可以放在其他目录，再用符号链接接入。安装过程不覆盖已有配置；
 默认会绑定 README 列出的前缀快捷键，有冲突时更换 prefix 或设置 `keymap = false`。
 
-在 Rex 设置中启用 **Remote Control**，脚本才能让客户端切换会话和标签页。
-连接多个客户端时，用 `REX_CLIENT` 指定目标。
-
 ## 常用快捷键
 
 先按 Ctrl+A，松开，再按：
@@ -62,17 +60,18 @@ rex config reload
 | `v` / `-` | 向右 / 向下分屏 |
 | `r` | 调整尺寸模式，Esc 退出 |
 
-Go to 打开时默认选中当前 pane（`◆` 标记）。列表覆盖服务器上的所有会话，
-但面板仍挂在打开它的标签页上：切换会话时隐藏，切回来仍存在。
-当前 Rex 公开 API 未提供自定义的应用级全局浮层。
+导航器在命令面板中打开，按侧栏顺序列出所有会话：输入即筛选，Enter 跳转，Esc 关闭。
+右侧一列显示状态（`●` blocked、`◉` unread、`✔` done、`◐` working、`○` idle），
+`◆` 标记打开导航器时所在的 pane。想只看某种状态，可以绑定带参数的快捷键：
+`rex.bind("ctrl+a>u", "rex_kit_goto", { state = "unread" })`。
 
 worktree 操作需从 Git 仓库内启动。默认路径是
-`~/.rex/worktrees/<repo>/<branch-slug>`，可用 `REX_WORKTREE_DIR` 修改。
-新建表单需要 Python 3（含 curses）：预填一个分支名，直接输入即可替换，
-下方实时显示 checkout 路径。Enter 按输入的名称创建并打开，Esc 取消，不搜索分支。
+`~/.rex/worktrees/<repo>/<branch-slug>`，可用 setup 的 `worktree_dir` 修改。
+新建时在命令面板里输入分支名（预填一个生成的名字），Enter 按输入的名称创建并打开，
+名称不合法会重新询问。打开/删除会列出该仓库的 worktree，已开成 Tab 的会标出来。
 创建或打开后默认在当前 Session 下开 Tab，再次打开会复用该 Tab。
-在 Rex 之外运行，或设置 `REX_WORKTREE_TARGET=session`，仍可创建独立 Session。
-删除保留分支；丢弃未提交修改需要再次确认。共享 Session 中的 Tab 保留，由用户自行关闭；
+在 Rex 之外运行，或设置 `worktree_target = "session"`，仍可创建独立 Session。
+删除前需要确认（默认选项是“保留”），保留分支；丢弃未提交修改需要再次确认。共享 Session 中的 Tab 保留，由用户自行关闭；
 旧版创建的独立会话仍会关闭，但不会关闭正在执行删除的当前 Session。
 
 ## 更新和卸载
